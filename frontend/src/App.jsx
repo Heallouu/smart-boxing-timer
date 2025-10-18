@@ -5,7 +5,11 @@ import TimerCircle from "./components/TimerCircle.jsx";
 import ControlButtons from "./components/ControlButtons.jsx";
 import ExerciseDisplay from "./components/ExerciseDisplay.jsx";
 import SettingsPanel from "./components/SettingsPanel.jsx";
-import { fetchSession } from "./utils/api.js";
+//import { fetchSession } from "./utils/api.js";
+import { Capacitor } from "@capacitor/core";
+import { openMobileDb } from "./lib/sqlite.js";
+import { generateSessionFromDb } from "./lib/sessionFromDb.js";
+
 import { useSpeech } from "./hooks/useSpeech.js";
 import { useAudioQueue } from "./hooks/useAudioQueue.js";
 import { useTimer } from "./hooks/useTimer.js";
@@ -30,8 +34,20 @@ export default function App() {
 
   // Chargement de session selon le niveau
   async function loadSession(lvl) {
-    const data = await fetchSession(lvl);
-    setSession(data);
+    // const data = await fetchSession(lvl);
+    // setSession(data);
+    if (Capacitor.isNativePlatform()) {
+      const db = await openMobileDb();
+      const data = await generateSessionFromDb(db, lvl);
+      setSession(data);
+    } else {
+      // Web: si tu veux rester full offline sans backend,
+      // tu peux appeler un generator local; sinon garde ton fetch.
+      const res = await fetch(
+        `/api/session?level=${encodeURIComponent(lvl)}`
+      ).then((r) => r.json());
+      setSession(res);
+    }
   }
   function handleSelect(lvl) {
     setLevel(lvl);

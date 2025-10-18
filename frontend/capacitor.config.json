@@ -1,0 +1,6 @@
+{
+  "appId": "com.heallouu.smartboxing",
+  "appName": "Smart Boxing Timer",
+  "webDir": "dist",             
+  "server": { "androidScheme": "https" }
+}
