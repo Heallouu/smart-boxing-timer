@@ -1,0 +1,36 @@
+# Node / JS
+node_modules/
+**/node_modules/
+dist/
+build/
+.vite/
+.cache/
+coverage/
+*.log
+
+# App web
+frontend/.env*
+frontend/dist/
+frontend/node_modules/
+
+# Backend
+backend/.env*
+backend/dist/
+backend/node_modules/
+backend/db.sqlite
+backend/db.sqlite3
+backend/*.db
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/
+
+# Media lourds (garde seulement les petits MP3)
+*.wav
+*.flac
+
+# Misc
+*.local

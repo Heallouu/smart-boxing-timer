@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* reset utiles */
+html, body, #root { height: 100%; margin: 0; }
+body { overflow: hidden; } /* pas de scroll global */
+
+:root { zoom: 125%; } /* ~125% */
+
+/* Conteneur qui scale l’UI SANS créer de scroll */
+.ui-scale {
+  width: calc(100vw / var(--ui-scale));
+  height: calc(100vh / var(--ui-scale));
+  transform: scale(var(--ui-scale));
+  transform-origin: top center;
+  overflow: hidden; /* empêche la scrollbar */
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+.glass {
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.dark .glass {
+  background: rgba(17, 25, 40, 0.55);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+.btn {
+@apply px-4 py-2 rounded-2xl hover:opacity-90 transition shadow-lg;
+box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+}
+
+h1,h2,h3 {
+  @apply font-semibold;
+}
+
+.glass-center {
+  display: grid;
+  place-content: center; /* centre X et Y */
+}
+
+.mt-1 {
+  margin-top: 2rem;
+}
+
+.mt-3 {
+  font-size: 1rem;
+  margin-top: 4rem
+}
