@@ -1,317 +1,245 @@
 // frontend/src/hooks/useTimer.js
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 /**
- * useTimer({ session, speech, sounds })
- * - session.segments: [{ phase:'warmup'|'work'|'rest'|'stretch', label, round?, total, steps:[{instruction, duration}], tenSecWarning? }, ...]
- * - speech: { enabled, speak(text, onEnd), cancel() }
- * - sounds: { play(eventKey: 'start'|'ten'|'end'), stopAll() }
- *
- * Contrat audio:
- *  1) À chaque (nouveau) step:
- *     - si ce step n'a pas encore été annoncé => TTS: "Round X / label. Consigne"
- *     - au onEnd TTS => (si phase 'work' ET stepIndex === 0) jouer 'start' ET démarrer le timer exactement en même temps
- *  2) -10s => biper seulement si phase 'work' ET dernier step du round
- *  3) Fin du round 'work' => jouer 'end'
+ * Timer pilotant segments & steps:
+ * - Multi-step dans un même segment (ex: split 90/90) : on enchaîne step->step sans finir le segment.
+ * - Cloche de départ (start) : seulement au début d'un round (segment "work").
+ * - Rappel -10s : basé sur le reste **du segment**, joué 1 fois si tenSecWarning=true.
+ * - Cloche de fin (end) : seulement quand le segment se termine.
+ * - Transition work -> rest : cloche end PUIS voix "repos", puis le timer démarre le repos.
+ * - Pause/Resume ok, Skip -> segment suivant.
  */
-
 export function useTimer({ session, speech, sounds }) {
-  // Indexes + état
   const [segmentIndex, setSegmentIndex] = useState(0);
   const [stepIndex, setStepIndex] = useState(0);
   const [remaining, setRemaining] = useState(0);
   const [running, setRunning] = useState(false);
 
-  // Infos d’affichage
-  const [phase, setPhase] = useState("idle");
-  const [round, setRound] = useState(null);
-
-  // Réfs pour éviter stale closures dans setInterval
-  const segRef = useRef(0);
-  const stepRef = useRef(0);
-  const runningRef = useRef(false);
-  const remainingRef = useRef(0);
-
-  // Annonce déjà faite pour le step courant ?
-  const announcedRef = useRef(false);
-  // -10s bip déjà fait pour ce step ?
-  const warnedTenRef = useRef(false);
-
-  // Interval tick
   const tickRef = useRef(null);
+  const tenWarnFiredRef = useRef(false);
 
-  // Utilitaires --------------------------------------------------------------
+  // raccourcis
+  const segment = useMemo(
+    () => session?.segments?.[segmentIndex] ?? null,
+    [session, segmentIndex]
+  );
+  const steps = segment?.steps ?? [];
+  const step = steps[stepIndex] ?? null;
 
-  function clearTick() {
-    if (tickRef.current) {
-      clearInterval(tickRef.current);
-      tickRef.current = null;
-    }
-    runningRef.current = false;
-    setRunning(false);
-  }
+  // phase et round exposés
+  const phase = segment?.phase ?? "idle";
+  const round = segment?.round ?? null;
 
-  function currentSeg() {
-    return session?.segments?.[segRef.current] || null;
-  }
+  // Somme des durées suivantes (y compris step courant)
+  const segmentRemaining = useMemo(() => {
+    if (!segment || steps.length === 0 || !step) return remaining || 0;
+    const restNext = steps
+      .slice(stepIndex + 1)
+      .reduce((a, s) => a + (s.duration || 0), 0);
+    return (remaining || 0) + restNext;
+  }, [segment, steps, stepIndex, remaining, step]);
 
-  function currentStep() {
-    const seg = currentSeg();
-    if (!seg) return null;
-    return seg.steps?.[stepRef.current] || null;
-  }
+  // --- init quand la session change
+  useEffect(() => {
+    stop(); // nettoie interval/voix
+    if (!session?.segments?.length) return;
+    setSegmentIndex(0);
+    setStepIndex(0);
+    setRemaining(session.segments[0]?.steps?.[0]?.duration || 0);
+    tenWarnFiredRef.current = false;
+  }, [session]);
 
-  function isLastStepInSegment() {
-    const seg = currentSeg();
-    if (!seg) return true;
-    return stepRef.current >= (seg.steps?.length || 1) - 1;
-  }
-
-  function goto(segIdx, stpIdx, { autoAnnounce = true } = {}) {
-    clearTick();
-    segRef.current = segIdx;
-    stepRef.current = stpIdx;
-    setSegmentIndex(segIdx);
-    setStepIndex(stpIdx);
-
-    const seg = session?.segments?.[segIdx];
-    if (!seg) {
-      // fin de séance
-      setPhase("idle");
-      setRound(null);
-      setRemaining(0);
-      remainingRef.current = 0;
-      announcedRef.current = false;
-      warnedTenRef.current = false;
-      return;
-    }
-
-    setPhase(seg.phase);
-    setRound(seg.round || null);
-
-    const stp = seg.steps?.[stpIdx];
-    const dur = stp?.duration || 0;
-    setRemaining(dur);
-    remainingRef.current = dur;
-
-    announcedRef.current = false;
-    warnedTenRef.current = false;
-
-    if (autoAnnounce) {
-      // on ne démarre pas tout de suite — on annonce d'abord
-      announceThenMaybeStart();
-    }
-  }
-
-  function nextStepOrSegment({
-    autoAnnounce = true,
-    waitEndSound = true,
-  } = {}) {
-    const seg = currentSeg();
-    if (!seg) return;
-
-    if (!isLastStepInSegment()) {
-      // Step suivant dans le même segment
-      goto(segRef.current, stepRef.current + 1, { autoAnnounce });
-      return;
-    }
-
-    // Fin de segment
-    const nextSegIdx = segRef.current + 1;
-
-    // 👉 Si c’était un round de travail, on joue d’abord le son de fin
-    if (seg.phase === "work" && waitEndSound) {
-      (async () => {
-        try {
-          await sounds?.play?.("end");
-        } catch {}
-        // Ensuite seulement on annonce la phase suivante (repos, etc.)
-        goto(nextSegIdx, 0, { autoAnnounce });
-      })();
-    } else {
-      // Pas un round de travail → on enchaîne directement
-      goto(nextSegIdx, 0, { autoAnnounce });
-    }
-  }
-
-  function startTick() {
-    if (tickRef.current) return; // déjà en cours
-    setRunning(true);
-    runningRef.current = true;
-
+  // --- util interval
+  function startTicking() {
+    if (tickRef.current) return;
     tickRef.current = setInterval(() => {
-      setRemaining((prev) => {
-        const next = prev - 1;
-        remainingRef.current = next;
-
-        const seg = currentSeg();
-        // -10s : uniquement si 'work' ET dernier step du round
-        if (
-          seg?.phase === "work" &&
-          seg?.tenSecWarning &&
-          isLastStepInSegment() &&
-          next === 10 &&
-          !warnedTenRef.current
-        ) {
-          warnedTenRef.current = true;
-          try {
-            sounds?.play?.("ten");
-          } catch {}
-        }
-
-        if (next <= 0) {
-          // Step terminé
-          clearTick();
-          nextStepOrSegment({ autoAnnounce: true });
-          return 0;
-        }
+      setRemaining((r) => {
+        const next = Math.max(0, r - 1);
         return next;
       });
     }, 1000);
   }
-
-  function announceTextFor(seg, stp) {
-    const totalRounds = session?.rounds || 8;
-    if (seg.phase === "work") {
-      const r = seg.round || 0;
-      return `Round ${r} sur ${totalRounds}. ${stp.instruction}`;
+  function stopTicking() {
+    if (tickRef.current) {
+      clearInterval(tickRef.current);
+      tickRef.current = null;
     }
-    // warmup / rest / stretch
-    const label = seg.label ? `${seg.label}. ` : "";
-    return `${label}${stp.instruction}`;
   }
 
-  function announceThenMaybeStart() {
-    const seg = currentSeg();
-    const stp = currentStep();
-    if (!seg || !stp) return;
+  // --- lecture start-of-segment (voix puis cloche si work) puis départ timer
+  async function announceAndStartCurrentStep() {
+    if (!segment || !step) return;
 
-    if (announcedRef.current) {
-      // déjà annoncé → simple reprise
-      startTick();
-      return;
+    // Texte d’annonce
+    const isWork = segment.phase === "work";
+    const preRound =
+      isWork && round ? `Round ${round}. ` : isWork ? "Round. " : "";
+    const spoken =
+      (step.title ? step.title + ". " : "") + (step.instruction || "");
+
+    // Voix d'abord
+    await new Promise((resolve) => speech?.speak?.(preRound + spoken, resolve));
+
+    // Cloche de départ uniquement en début de round (stepIndex === 0) et phase=work
+    if (isWork && stepIndex === 0) {
+      await sounds?.play?.("start");
     }
 
-    const text = announceTextFor(seg, stp);
-
-    // Annule toute TTS en cours puis annonce
-    try {
-      speech?.cancel?.();
-    } catch {}
-    if (!speech?.speak || speech?.enabled === false) {
-      // pas de voix → on démarre directement (mais son de début si work + 1er step)
-      if (seg.phase === "work" && stepRef.current === 0) {
-        try {
-          sounds?.play?.("start");
-        } catch {}
-      }
-      startTick();
-      announcedRef.current = true;
-      return;
-    }
-
-    announcedRef.current = true; // verrou anti double-start
-    speech.speak(text, () => {
-      // 👉 la voix vient de finir : on lance son de début (si work & 1er step) ET timer en même temps
-      if (seg.phase === "work" && stepRef.current === 0) {
-        try {
-          sounds?.play?.("start");
-        } catch {}
-      }
-      startTick();
-    });
+    // Démarrer le timer si on a pas été arrêté entre temps
+    setRunning(true);
+    startTicking();
   }
 
-  // API publique -------------------------------------------------------------
+  // --- passage au step suivant dans le même segment
+  async function gotoNextStep() {
+    if (!segment) return;
+    const lastStep = stepIndex >= steps.length - 1;
 
-  function start() {
-    // Start (= annonce si pas encore annoncée, sinon reprise)
-    if (!session || !session.segments?.length) return;
-    if (runningRef.current) return;
+    if (!lastStep) {
+      // avancer au step suivant sans finir le segment
+      const nextIdx = stepIndex + 1;
+      setStepIndex(nextIdx);
+      const next = steps[nextIdx];
+      setRemaining(next?.duration || 0);
 
-    // Si on n’a encore rien chargé (première fois), positionner au tout début
-    if (!currentSeg()) {
-      goto(0, 0, { autoAnnounce: true });
+      // Ne jamais rejouer la cloche start au milieu d'un round,
+      // mais lire la consigne du second côté.
+      speech?.speak?.(
+        (next?.title ? next.title + ". " : "") + (next?.instruction || ""),
+        () => {}
+      );
+      // le timer reste en marche (on ne met pas running=false)
       return;
     }
-    announceThenMaybeStart();
+
+    // sinon fin de segment
+    await onSegmentEnd();
+  }
+
+  // --- fin de segment: jouer end si work, annoncer la prochaine phase et basculer
+  async function onSegmentEnd() {
+    if (!segment) return;
+
+    // Stopper le ticking pendant la transition
+    stopTicking();
+    setRunning(false);
+
+    // Cloche fin uniquement pour un segment de travail
+    if (segment.phase === "work") {
+      await sounds?.play?.("end");
+    }
+
+    // Aller au segment suivant
+    const nextSegmentIdx = segmentIndex + 1;
+    const nextSegment = session?.segments?.[nextSegmentIdx];
+
+    if (!nextSegment) {
+      // Fin de séance
+      setRemaining(0);
+      return;
+    }
+
+    tenWarnFiredRef.current = false; // reset -10s pour le nouveau segment
+    setSegmentIndex(nextSegmentIdx);
+    setStepIndex(0);
+    setRemaining(nextSegment?.steps?.[0]?.duration || 0);
+
+    // Annonce de la première consigne du nouveau segment
+    const firstStep = nextSegment?.steps?.[0];
+    if (firstStep) {
+      // Si on passe en repos, la demande était : cloche (déjà jouée) puis voix "repos"
+      const text =
+        (firstStep.title ? firstStep.title + ". " : "") +
+        (firstStep.instruction || "");
+      await new Promise((resolve) => speech?.speak?.(text, resolve));
+    }
+
+    // Démarrer le nouveau segment
+    setRunning(true);
+    startTicking();
+  }
+
+  // --- Ten seconds warning (au niveau segment)
+  useEffect(() => {
+    if (!running || !segment) return;
+    if (!segment.tenSecWarning) return;
+    if (tenWarnFiredRef.current) return;
+
+    // Quand il reste <= 10 s sur tout le segment : bip
+    if (segmentRemaining <= 10 && segmentRemaining > 0) {
+      tenWarnFiredRef.current = true;
+      sounds?.play?.("ten");
+    }
+  }, [running, segment, segmentRemaining, sounds]);
+
+  // --- réaction à remaining=0 : avancer step ou segment
+  useEffect(() => {
+    if (!running) return;
+    if (remaining > 0) return;
+
+    // Fin du step courant
+    gotoNextStep();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remaining, running]);
+
+  // --- API controls
+  async function start() {
+    if (!segment || !step) return;
+    if (running) return;
+
+    // Si on est au tout début du segment/step, faire l’annonce puis départ
+    await announceAndStartCurrentStep();
   }
 
   function pause() {
-    clearTick();
+    setRunning(false);
+    stopTicking();
   }
 
   function stop() {
-    clearTick();
-    try {
-      speech?.cancel?.();
-    } catch {}
-    try {
-      sounds?.stopAll?.();
-    } catch {}
-
-    if (session?.segments?.length) {
-      // reset au tout début sans auto annonce
-      goto(0, 0, { autoAnnounce: false });
-      setPhase(session.segments[0].phase || "idle");
-      setRound(session.segments[0].round || null);
-    } else {
-      setPhase("idle");
-      setRound(null);
-      setRemaining(0);
-      remainingRef.current = 0;
-      announcedRef.current = false;
-      warnedTenRef.current = false;
-      segRef.current = 0;
-      stepRef.current = 0;
+    stopTicking();
+    setRunning(false);
+    sounds?.stopAll?.();
+    speech?.cancel?.();
+    if (!session?.segments?.length) {
       setSegmentIndex(0);
       setStepIndex(0);
+      setRemaining(0);
+      return;
     }
+    setSegmentIndex(0);
+    setStepIndex(0);
+    setRemaining(session.segments[0]?.steps?.[0]?.duration || 0);
+    tenWarnFiredRef.current = false;
   }
 
-  // Skip -> passe à la phase/segment suivant (bypass l’échauffement, etc.)
   function skip() {
-    clearTick();
-    try {
-      speech?.cancel?.();
-    } catch {}
-    try {
-      sounds?.stopAll?.();
-    } catch {}
-    nextStepOrSegment({ autoAnnounce: true });
+    sounds?.stopAll?.();
+    speech?.cancel?.();
+    stopTicking();
+    setRunning(false);
+
+    const nextIdx = segmentIndex + 1;
+    if (!session?.segments?.[nextIdx]) {
+      // déjà à la fin
+      setRemaining(0);
+      return;
+    }
+    setSegmentIndex(nextIdx);
+    setStepIndex(0);
+    setRemaining(session.segments[nextIdx]?.steps?.[0]?.duration || 0);
+    tenWarnFiredRef.current = false;
+
+    // Démarre directement la nouvelle phase (annonce incluse)
+    announceAndStartCurrentStep();
   }
 
-  // Effets -------------------------------------------------------------------
-
-  // Re-init quand la session change
-  useEffect(() => {
-    clearTick();
-    segRef.current = 0;
-    stepRef.current = 0;
-    announcedRef.current = false;
-    warnedTenRef.current = false;
-
-    if (session?.segments?.length) {
-      const seg = session.segments[0];
-      const stp = seg.steps?.[0];
-      setSegmentIndex(0);
-      setStepIndex(0);
-      setPhase(seg.phase || "idle");
-      setRound(seg.round || null);
-      const dur = stp?.duration || 0;
-      setRemaining(dur);
-      remainingRef.current = dur;
-    } else {
-      setPhase("idle");
-      setRound(null);
-      setRemaining(0);
-      remainingRef.current = 0;
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session]);
+  // cleanup
+  useEffect(() => () => stopTicking(), []);
 
   return {
-    // état courant
+    // état exposé
     running,
     phase,
     round,
@@ -319,7 +247,7 @@ export function useTimer({ session, speech, sounds }) {
     stepIndex,
     remaining,
 
-    // actions
+    // contrôles
     start,
     pause,
     stop,
