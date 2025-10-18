@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">smart-boxing-timer</string>
-    <string name="title_activity_main">smart-boxing-timer</string>
+    <string name="app_name">Smart Boxing Timer</string>
+    <string name="title_activity_main">Smart Boxing Timer</string>
     <string name="package_name">com.heallouu.smartboxing</string>
     <string name="custom_url_scheme">com.heallouu.smartboxing</string>
 </resources>

@@ -4,18 +4,10 @@
 
 /* reset utiles */
 html, body, #root { height: 100%; margin: 0; }
-body { overflow: hidden; } /* pas de scroll global */
+body { overflow-y: auto; overscroll-behavior-y: contain; }
 
-:root { zoom: 125%; } /* ~125% */
-
-/* Conteneur qui scale l’UI SANS créer de scroll */
-.ui-scale {
-  width: calc(100vw / var(--ui-scale));
-  height: calc(100vh / var(--ui-scale));
-  transform: scale(var(--ui-scale));
-  transform-origin: top center;
-  overflow: hidden; /* empêche la scrollbar */
-}
+/* Utilitaires safe-area (barre nav Android / notch iOS) */
+.safe-pb { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
 
 html, body, #root {
   height: 100%;
@@ -53,5 +45,4 @@ h1,h2,h3 {
 
 .mt-3 {
   font-size: 1rem;
-  margin-top: 4rem
 }

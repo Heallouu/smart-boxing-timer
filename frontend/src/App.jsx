@@ -5,14 +5,17 @@ import TimerCircle from "./components/TimerCircle.jsx";
 import ControlButtons from "./components/ControlButtons.jsx";
 import ExerciseDisplay from "./components/ExerciseDisplay.jsx";
 import SettingsPanel from "./components/SettingsPanel.jsx";
-//import { fetchSession } from "./utils/api.js";
+
 import { Capacitor } from "@capacitor/core";
 import { openMobileDb } from "./lib/sqlite.js";
 import { generateSessionFromDb } from "./lib/sessionFromDb.js";
+import { generateLocalSession } from "./utils/localSession.js"; // ⬅️ fallback offline
 
 import { useSpeech } from "./hooks/useSpeech.js";
 import { useAudioQueue } from "./hooks/useAudioQueue.js";
 import { useTimer } from "./hooks/useTimer.js";
+
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
 export default function App() {
   // --- State racine
@@ -32,23 +35,39 @@ export default function App() {
   const sounds = useAudioQueue();
   const timer = useTimer({ session, speech, sounds });
 
-  // Chargement de session selon le niveau
+  // Chargement de session selon le niveau (avec fallback partout)
   async function loadSession(lvl) {
-    // const data = await fetchSession(lvl);
-    // setSession(data);
-    if (Capacitor.isNativePlatform()) {
-      const db = await openMobileDb();
-      const data = await generateSessionFromDb(db, lvl);
-      setSession(data);
-    } else {
-      // Web: si tu veux rester full offline sans backend,
-      // tu peux appeler un generator local; sinon garde ton fetch.
+    const isNative = !!Capacitor.isNativePlatform?.();
+
+    if (isNative) {
+      try {
+        const db = await openMobileDb();
+        const data = await generateSessionFromDb(db, lvl);
+        if (data && Array.isArray(data.segments) && data.segments.length > 0) {
+          setSession(data);
+          return;
+        }
+        setSession(generateLocalSession(lvl));
+        return;
+      } catch {
+        setSession(generateLocalSession(lvl));
+        return;
+      }
+    }
+
+    try {
       const res = await fetch(
-        `/api/session?level=${encodeURIComponent(lvl)}`
-      ).then((r) => r.json());
-      setSession(res);
+        `${API_BASE}/api/session?level=${encodeURIComponent(lvl)}`
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (!data?.segments?.length) throw new Error("Empty session");
+      setSession(data);
+    } catch {
+      setSession(generateLocalSession(lvl));
     }
   }
+
   function handleSelect(lvl) {
     setLevel(lvl);
     loadSession(lvl);
@@ -93,7 +112,6 @@ export default function App() {
     const i = timer.segmentIndex ?? 0;
     const j = timer.stepIndex ?? 0;
 
-    // Step suivant dans le segment courant
     if (segments[i]?.steps && j + 1 < segments[i].steps.length) {
       return {
         text: segments[i].steps[j + 1].instruction,
@@ -101,7 +119,6 @@ export default function App() {
         label: segments[i].label,
       };
     }
-    // Premier step d’un segment suivant
     for (let k = i + 1; k < segments.length; k++) {
       const nseg = segments[k];
       if (nseg?.steps?.length) {
@@ -124,17 +141,13 @@ export default function App() {
       ? "text-rest"
       : "text-idle";
 
-  // --- Rendu
+  // --- Rendu (layout flex + zones scrollables)
   return (
-    <div className="min-h-screen bg-gradient-to-br from-white to-slate-100 dark:from-slate-950 dark:to-slate-900 text-slate-900 dark:text-slate-100 transition">
+    <div className="min-h-dvh flex flex-col bg-gradient-to-br from-white to-slate-100 dark:from-slate-950 dark:to-slate-900 text-slate-900 dark:text-slate-100 transition">
       {!level ? (
-        // Sélecteur plein écran parfaitement centré
-        <div
-          className="fixed inset-0 grid place-items-center overflow-hidden
-                     
-                     dark:from-slate-900 dark:to-slate-800"
-        >
-          <ProgramSelector onSelect={handleSelect} />
+        <div className="fixed inset-0 grid place-items-center overflow-hidden dark:from-slate-900 dark:to-slate-800">
+          {" "}
+          <ProgramSelector onSelect={handleSelect} />{" "}
         </div>
       ) : (
         <>
@@ -155,8 +168,9 @@ export default function App() {
             </div>
           </header>
 
-          <main className="px-4 pb-10">
-            <div className="max-w-4xl mx-auto grid md:grid-cols-2 gap-6">
+          {/* zone centrale scrollable (mobile friendly) */}
+          <main className="flex-1 px-4 pb-10 overflow-y-auto safe-pb">
+            <div className="max-w-4xl mx-auto grid md:grid-cols-2 gap-2">
               {/* Colonne gauche : Timer + contrôles */}
               <div className="glass p-6 rounded-3xl">
                 <TimerCircle
@@ -189,8 +203,8 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Colonne droite : Consignes */}
-              <div className="glass p-6 rounded-3xl glass-center">
+              {/* Colonne droite : Consignes (scroll interne si trop haute) */}
+              <div className="glass p-6 rounded-3xl overflow-y-auto max-h-[calc(100dvh-200px)]">
                 <ExerciseDisplay segment={seg} stepIndex={timer.stepIndex} />
                 <div className="mt-3 text-center text-sm opacity-80">
                   À suivre :{" "}

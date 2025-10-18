@@ -5,8 +5,8 @@ function IconPlay(props) {
   return (
     <svg
       viewBox="0 0 24 24"
-      width="20"
-      height="20"
+      width="22"
+      height="22"
       stroke="currentColor"
       fill="none"
       strokeWidth="2"
@@ -20,8 +20,8 @@ function IconPause(props) {
   return (
     <svg
       viewBox="0 0 24 24"
-      width="20"
-      height="20"
+      width="22"
+      height="22"
       stroke="currentColor"
       fill="none"
       strokeWidth="2"
@@ -35,8 +35,8 @@ function IconStop(props) {
   return (
     <svg
       viewBox="0 0 24 24"
-      width="20"
-      height="20"
+      width="22"
+      height="22"
       stroke="currentColor"
       fill="none"
       strokeWidth="2"
@@ -50,8 +50,8 @@ function IconRefresh(props) {
   return (
     <svg
       viewBox="0 0 24 24"
-      width="20"
-      height="20"
+      width="22"
+      height="22"
       stroke="currentColor"
       fill="none"
       strokeWidth="2"
@@ -69,15 +69,15 @@ function IconSkip(props) {
   return (
     <svg
       viewBox="0 0 24 24"
-      width="20"
-      height="20"
+      width="22"
+      height="22"
       stroke="currentColor"
       fill="none"
       strokeWidth="2"
       {...props}
     >
       <path
-        d="M5 5v14M7 7l7 5-7 5V7m9-0l7 5-7 5V7"
+        d="M5 5v14M7 7l7 5-7 5V7m9 0l7 5-7 5V7"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -97,9 +97,9 @@ export default function ControlButtons({
   const toggle = () => (running ? onPause?.() : onStart?.());
 
   const base =
-    "inline-flex items-center gap-2 px-5 py-3 rounded-2xl " +
+    "inline-flex items-center justify-center rounded-2xl aspect-square w-full " + // carrés et prennent la largeur de la colonne
     "bg-white/10 dark:bg-slate-800/50 backdrop-blur-md border border-white/15 " +
-    "transition will-change-transform hover:-translate-y-0.5 active:translate-y-0 " +
+    "transition hover:-translate-y-0.5 active:translate-y-0 " +
     "text-slate-900 dark:text-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50";
 
   const accentRun =
@@ -114,80 +114,73 @@ export default function ControlButtons({
     "ring-1 ring-sky-300/30     hover:ring-sky-300/50     shadow-[0_6px_14px_rgba(56,189,248,0.18)]";
 
   return (
-    <div className="grid gap-3">
-      {/* Rangée 1 : Toggle + Stop + Skip */}
-      <div className="flex gap-3 flex-wrap justify-center">
-        <button
-          type="button"
-          onClick={toggle}
-          aria-label={running ? "Pause" : "Démarrer"}
-          className={`${base} ${running ? accentPause : accentRun}`}
-          title={running ? "Mettre en pause" : "Démarrer"}
-        >
-          {running ? <IconPause /> : <IconPlay />}
-          <span className="font-medium">{running ? "Pause" : "Démarrer"}</span>
-        </button>
+    // Grille 4 colonnes -> toujours sur une ligne (mobile inclus)
+    <div className="grid grid-cols-4 gap-2">
+      {/* Toggle Play/Pause */}
+      <button
+        type="button"
+        onClick={toggle}
+        aria-label={running ? "Pause" : "Démarrer"}
+        className={`${base} ${running ? accentPause : accentRun}`}
+        title={running ? "Mettre en pause" : "Démarrer"}
+      >
+        {running ? <IconPause /> : <IconPlay />}
+      </button>
 
-        <button
-          type="button"
-          onClick={onStop}
-          aria-label="Stop"
-          className={`${base} ${accentStop}`}
-          title="Arrêter et remettre à zéro"
-        >
-          <IconStop />
-          <span className="font-medium">Stop</span>
-        </button>
+      {/* Stop */}
+      <button
+        type="button"
+        onClick={onStop}
+        aria-label="Stop"
+        className={`${base} ${accentStop}`}
+        title="Arrêter et remettre à zéro"
+      >
+        <IconStop />
+      </button>
 
-        <button
-          type="button"
-          onClick={canSkip ? onSkip : undefined}
-          aria-label="Passer au segment suivant"
-          disabled={!canSkip}
-          aria-disabled={!canSkip}
-          className={[
-            base,
-            accentSkip,
-            !canSkip
-              ? "opacity-50 cursor-not-allowed ring-0 shadow-none hover:translate-y-0"
-              : "",
-          ].join(" ")}
-          title={
-            canSkip ? "Passer à la phase suivante" : "Dernière phase atteinte"
-          }
-        >
-          <IconSkip />
-          <span className="font-medium">Skip</span>
-        </button>
-      </div>
+      {/* Skip */}
+      <button
+        type="button"
+        onClick={canSkip ? onSkip : undefined}
+        aria-label="Passer au segment suivant"
+        disabled={!canSkip}
+        aria-disabled={!canSkip}
+        className={[
+          base,
+          accentSkip,
+          !canSkip
+            ? "opacity-50 cursor-not-allowed hover:translate-y-0 ring-0 shadow-none"
+            : "",
+        ].join(" ")}
+        title={
+          canSkip ? "Passer à la phase suivante" : "Dernière phase atteinte"
+        }
+      >
+        <IconSkip />
+      </button>
 
-      {/* Rangée 2 : Régénérer (toujours en dessous) */}
-      <div className="flex justify-center">
-        <button
-          type="button"
-          onClick={!running ? onRegenerate : undefined}
-          aria-label="Régénérer la séance"
-          disabled={running}
-          aria-disabled={running}
-          title={
-            running
-              ? "Désactivé pendant la lecture"
-              : "Générer une nouvelle séance aléatoire"
-          }
-          className={[
-            base,
-            accentRegen,
-            running
-              ? "opacity-50 cursor-not-allowed ring-0 shadow-none hover:translate-y-0"
-              : "",
-          ].join(" ")}
-        >
-          <IconRefresh />
-          <span className="font-medium">
-            {running ? "Régénérer" : "Régénérer"}
-          </span>
-        </button>
-      </div>
+      {/* Régénérer */}
+      <button
+        type="button"
+        onClick={!running ? onRegenerate : undefined}
+        aria-label="Régénérer la séance"
+        disabled={running}
+        aria-disabled={running}
+        title={
+          running
+            ? "Désactivé pendant la lecture"
+            : "Générer une nouvelle séance aléatoire"
+        }
+        className={[
+          base,
+          accentRegen,
+          running
+            ? "opacity-50 cursor-not-allowed hover:translate-y-0 ring-0 shadow-none"
+            : "",
+        ].join(" ")}
+      >
+        <IconRefresh />
+      </button>
     </div>
   );
 }
