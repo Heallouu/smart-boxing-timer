@@ -15,6 +15,8 @@ import { useSpeech } from "./hooks/useSpeech.js";
 import { useAudioQueue } from "./hooks/useAudioQueue.js";
 import { useTimer } from "./hooks/useTimer.js";
 
+import IconGear from "./components/icons/IconGear.jsx";
+
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
 export default function App() {
@@ -72,8 +74,19 @@ export default function App() {
     setLevel(lvl);
     loadSession(lvl);
   }
+
   function regenerate() {
     if (level) loadSession(level);
+  }
+
+  // 👉 Retour à l’écran de sélection (en cliquant sur le niveau affiché)
+  function backToProgramPicker() {
+    try {
+      timer.stop(); // coupe timer + sons + voix et remet à zéro
+    } catch {}
+    setOpenSettings(false);
+    setSession(null);
+    setLevel(null);
   }
 
   // --- Données dérivées
@@ -146,16 +159,25 @@ export default function App() {
     <div className="min-h-dvh flex flex-col bg-gradient-to-br from-white to-slate-100 dark:from-slate-950 dark:to-slate-900 text-slate-900 dark:text-slate-100 transition">
       {!level ? (
         <div className="fixed inset-0 grid place-items-center overflow-hidden dark:from-slate-900 dark:to-slate-800">
-          {" "}
-          <ProgramSelector onSelect={handleSelect} />{" "}
+          <ProgramSelector onSelect={handleSelect} />
         </div>
       ) : (
         <>
           <header className="flex items-center justify-between p-4">
             <div className="flex items-center gap-2">
               <span className="text-lg font-semibold">Smart Boxing Timer</span>
-              <span className="opacity-70 text-sm">({level})</span>
+
+              {/* Niveau cliquable pour revenir au choix */}
+              <button
+                onClick={backToProgramPicker}
+                className="opacity-70 text-sm underline decoration-dotted hover:opacity-100 hover:decoration-solid rounded px-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+                title="Changer de programme"
+                aria-label={`Changer de programme (actuel : ${level})`}
+              >
+                ({level})
+              </button>
             </div>
+
             <div className="flex items-center gap-2">
               <button
                 className="btn glass"
@@ -163,7 +185,7 @@ export default function App() {
                 aria-label="Ouvrir les paramètres"
                 title="Paramètres"
               >
-                ⚙️
+                <IconGear className="w-5 h-5 transition-transform duration-300 group-hover:rotate-90" />
               </button>
             </div>
           </header>
