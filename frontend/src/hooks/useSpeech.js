@@ -2,21 +2,22 @@ import { useEffect, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { TextToSpeech } from "@capacitor-community/text-to-speech";
 
-// Estimate utterance time to chain chunks on Android (no reliable onend)
 function estimateMs(text, rate = 1.0) {
   const words = (text || "").trim().split(/\s+/).filter(Boolean).length;
-  const base = (words * 600) / Math.max(rate, 0.5); // ~150 wpm @ rate=1
-  return Math.max(400, Math.min(10000, base));
+  // ~150 wpm ≈ 400 ms/mot ; on serre un peu pour éviter le trou
+  const perWordMs = 380;
+  const ms = (words * perWordMs) / Math.max(rate, 0.5);
+  return Math.max(250, Math.min(6000, ms));
 }
 
 // Split only on Android to improve prosody (web voices are usually fine)
 function chunkText(text) {
   if (!text) return [];
-  // strong breaks: . ! ? ; :
-  let chunks = text.split(/(?<=[.!?;:])\s+/).filter(Boolean);
-  // further split very long chunks by comma
-  chunks = chunks.flatMap((c) => (c.length > 120 ? c.split(/,\s+/) : [c]));
-  return chunks.map((c) => c.trim()).filter(Boolean);
+  // On ne coupe qu'aux fins de phrase pour limiter le nombre de chunks
+  return text
+    .split(/(?<=[!?;:])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 export function useSpeech() {
@@ -136,7 +137,7 @@ export function useSpeech() {
           } catch {}
         }
         // wait roughly for this part to finish
-        const ms = estimateMs(part, rate);
+        const ms = Math.max(120, estimateMs(part, rate) - 120);
         await new Promise((r) => setTimeout(r, ms));
       }
 

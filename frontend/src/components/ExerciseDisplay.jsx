@@ -8,6 +8,7 @@ export default function ExerciseDisplay({ segment, stepIndex = 0 }) {
   );
 
   const phase = segment?.phase ?? "idle";
+
   const phaseClass =
     phase === "warmup"
       ? "text-warmup"
@@ -17,23 +18,32 @@ export default function ExerciseDisplay({ segment, stepIndex = 0 }) {
       ? "text-rest"
       : "text-idle";
 
+  // Libellé affiché (ex: "Échauffement", "Round 1", "Repos", "Étirements")
+  const label = segment?.label ?? "—";
+
+  // Nom “phase” à afficher à droite (coloré)
+  const phaseName =
+    phase === "warmup"
+      ? "Échauffement"
+      : phase === "work"
+      ? "Travail"
+      : phase === "rest"
+      ? "Repos"
+      : phase === "stretch"
+      ? "Étirements"
+      : "";
+
+  // Évite la redondance : si label == phaseName, on n'affiche pas la seconde partie.
+  const showPhaseName = phaseName && phaseName !== label;
+
   return (
     <div className="space-y-3">
-      {/* Libellé de la phase */}
-      <div className="text-2xl text-center text-xs uppercase tracking-wider opacity-70">
-        {segment?.label ?? "—"}
-      </div>
-      {/* Phase actuelle en couleur (optionnel) */}
-      <div className={`text-center text-sm opacity-80 ${phaseClass}`}>
-        {phase === "warmup"
-          ? ""
-          : phase === "work"
-          ? "Travail"
-          : phase === "rest"
-          ? ""
-          : phase === "stretch"
-          ? "Étirements"
-          : "Idle"}
+      {/* En-tête sur une ligne : libellé + phase colorée */}
+      <div className="flex items-baseline justify-center gap-2 text-xs uppercase tracking-wider opacity-70">
+        <span className="text-center">{label}</span>
+        {showPhaseName && (
+          <span className={`text-center ${phaseClass}`}>· {phaseName}</span>
+        )}
       </div>
 
       {/* Consigne actuelle */}
