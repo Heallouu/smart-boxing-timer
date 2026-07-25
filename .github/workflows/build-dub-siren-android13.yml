@@ -85,7 +85,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm
 
-      - name: Launch and keep alive on Android 13 emulator
+      - name: Exercise app on Android 13 emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 33
@@ -96,22 +96,55 @@ jobs:
           emulator-boot-timeout: 600
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -no-boot-anim -camera-back none
           script: |
-            set -euo pipefail
+            set +e
             APK="$GITHUB_WORKSPACE/DubSirenDS01-v1.2.1-Android13.apk"
-            adb install -r "$APK"
+            adb install -r "$APK" > "$GITHUB_WORKSPACE/android13-install.txt" 2>&1
+            INSTALL_RC=$?
             adb logcat -c
-            adb shell am start -W -n com.dubsiren.ds01/.MainActivity | tee /tmp/start.txt
+            adb shell am start -W -n com.dubsiren.ds01/.MainActivity > "$GITHUB_WORKSPACE/android13-start.txt" 2>&1
+            START_RC=$?
             sleep 10
-            PID="$(adb shell pidof com.dubsiren.ds01 | tr -d '\r')"
-            test -n "$PID"
-            adb shell dumpsys activity activities > /tmp/activities.txt
-            grep -q 'com.dubsiren.ds01/.MainActivity' /tmp/activities.txt
-            adb logcat -d > /tmp/logcat.txt
-            if grep -A30 -B5 -E 'FATAL EXCEPTION|Process: com\.dubsiren\.ds01' /tmp/logcat.txt; then
-              echo 'Crash detected' >&2
-              exit 1
-            fi
-            adb exec-out screencap -p > "$GITHUB_WORKSPACE/DubSirenDS01-Android13-smoke-test.png"
+            PID="$(adb shell pidof com.dubsiren.ds01 2>/dev/null | tr -d '\r')"
+            adb shell dumpsys activity activities > "$GITHUB_WORKSPACE/android13-activities.txt" 2>&1
+            adb shell dumpsys package com.dubsiren.ds01 > "$GITHUB_WORKSPACE/android13-package.txt" 2>&1
+            adb logcat -d > "$GITHUB_WORKSPACE/android13-logcat.txt" 2>&1
+            adb exec-out screencap -p > "$GITHUB_WORKSPACE/DubSirenDS01-Android13-smoke-test.png" 2>/dev/null
+            SCREENSHOT_RC=$?
+            {
+              echo "INSTALL_RC=$INSTALL_RC"
+              echo "START_RC=$START_RC"
+              echo "PID=$PID"
+              echo "SCREENSHOT_RC=$SCREENSHOT_RC"
+            } > "$GITHUB_WORKSPACE/android13-result.txt"
+            exit 0
+
+      - name: Upload Android 13 diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: DubSirenDS01-v1.2.1-Android13-diagnostics
+          path: |
+            android13-*.txt
+            DubSirenDS01-Android13-smoke-test.png
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Validate Android 13 launch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat android13-result.txt
+          cat android13-install.txt
+          cat android13-start.txt
+          grep -q '^INSTALL_RC=0$' android13-result.txt
+          grep -q '^START_RC=0$' android13-result.txt
+          grep -Eq '^PID=[0-9]+' android13-result.txt
+          grep -q 'com.dubsiren.ds01/.MainActivity' android13-activities.txt
+          if grep -q 'Process: com.dubsiren.ds01' android13-logcat.txt; then
+            grep -A80 -B20 'Process: com.dubsiren.ds01' android13-logcat.txt
+            exit 1
+          fi
+          test -s DubSirenDS01-Android13-smoke-test.png
 
       - name: Upload tested APK
         uses: actions/upload-artifact@v4
