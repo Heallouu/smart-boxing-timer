@@ -1,0 +1,103 @@
+name: Build and test Dub Siren Android 13
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'dub-siren-build/**'
+      - '.github/workflows/build-dub-siren-android13.yml'
+  push:
+    branches: [ build-dub-siren-android13 ]
+    paths:
+      - 'dub-siren-build/**'
+      - '.github/workflows/build-dub-siren-android13.yml'
+  workflow_dispatch:
+
+jobs:
+  build-and-android13-smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat dub-siren-build/source.part00 \
+              dub-siren-build/source.part01 \
+              dub-siren-build/source.part02 \
+              dub-siren-build/source.part03 \
+              dub-siren-build/source.part04 | base64 --decode > /tmp/dub-siren-source.zip
+          unzip -t /tmp/dub-siren-source.zip
+          unzip -q /tmp/dub-siren-source.zip -d /tmp/dub-siren
+          test -f /tmp/dub-siren/DubSirenDS01-v1.2.1-android13-src/app/src/main/AndroidManifest.xml
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: yes | sdkmanager --licenses >/dev/null && sdkmanager 'platforms;android-34' 'build-tools;34.0.0' 'platform-tools' 'emulator' 'system-images;android-33;google_apis;x86_64'
+
+      - name: Compile APK with official Android Gradle plugin
+        working-directory: /tmp/dub-siren/DubSirenDS01-v1.2.1-android13-src
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Verify APK structure and signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=/tmp/dub-siren/DubSirenDS01-v1.2.1-android13-src/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$APK" | tee /tmp/apk-badging.txt
+          unzip -t "$APK"
+          cp "$APK" "$GITHUB_WORKSPACE/DubSirenDS01-v1.2.1-Android13.apk"
+
+      - name: Launch and keep alive on Android 13 emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          target: google_apis
+          arch: x86_64
+          profile: pixel_3a
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            APK="$GITHUB_WORKSPACE/DubSirenDS01-v1.2.1-Android13.apk"
+            adb install -r "$APK"
+            adb logcat -c
+            adb shell am start -W -n com.dubsiren.ds01/.MainActivity | tee /tmp/start.txt
+            sleep 10
+            PID="$(adb shell pidof com.dubsiren.ds01 | tr -d '\r')"
+            test -n "$PID"
+            adb shell dumpsys activity activities | grep -q 'com.dubsiren.ds01/.MainActivity'
+            adb logcat -d > /tmp/logcat.txt
+            if grep -A30 -B5 -E 'FATAL EXCEPTION|Process: com\.dubsiren\.ds01' /tmp/logcat.txt; then
+              echo 'Crash detected' >&2
+              exit 1
+            fi
+            adb exec-out screencap -p > "$GITHUB_WORKSPACE/DubSirenDS01-Android13-smoke-test.png"
+
+      - name: Upload tested APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DubSirenDS01-v1.2.1-Android13-tested
+          path: |
+            DubSirenDS01-v1.2.1-Android13.apk
+            DubSirenDS01-Android13-smoke-test.png
+          if-no-files-found: error
+          retention-days: 7
