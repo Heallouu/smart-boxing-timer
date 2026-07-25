@@ -69,6 +69,22 @@ jobs:
           unzip -t "$APK"
           cp "$APK" "$GITHUB_WORKSPACE/DubSirenDS01-v1.2.1-Android13.apk"
 
+      - name: Upload compiled APK immediately
+        uses: actions/upload-artifact@v4
+        with:
+          name: DubSirenDS01-v1.2.1-Android13-compiled
+          path: DubSirenDS01-v1.2.1-Android13.apk
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Enable KVM acceleration
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+
       - name: Launch and keep alive on Android 13 emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -77,6 +93,8 @@ jobs:
           arch: x86_64
           profile: pixel_3a
           disable-animations: true
+          emulator-boot-timeout: 600
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -no-boot-anim -camera-back none
           script: |
             set -euo pipefail
             APK="$GITHUB_WORKSPACE/DubSirenDS01-v1.2.1-Android13.apk"
@@ -86,7 +104,8 @@ jobs:
             sleep 10
             PID="$(adb shell pidof com.dubsiren.ds01 | tr -d '\r')"
             test -n "$PID"
-            adb shell dumpsys activity activities | grep -q 'com.dubsiren.ds01/.MainActivity'
+            adb shell dumpsys activity activities > /tmp/activities.txt
+            grep -q 'com.dubsiren.ds01/.MainActivity' /tmp/activities.txt
             adb logcat -d > /tmp/logcat.txt
             if grep -A30 -B5 -E 'FATAL EXCEPTION|Process: com\.dubsiren\.ds01' /tmp/logcat.txt; then
               echo 'Crash detected' >&2
